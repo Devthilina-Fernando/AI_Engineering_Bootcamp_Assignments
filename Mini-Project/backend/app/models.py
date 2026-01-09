@@ -105,3 +105,43 @@ class AgentQueryResponse(BaseModel):
                 "model": "gpt-4o-mini"
             }
         }
+
+
+class TouristQueryRequest(BaseModel):
+    """Request model for tourist guide query endpoint"""
+    query: str = Field(..., description="The user's question about a city or heritage site")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "Tell me about ancient heritage sites in Rome"
+            }
+        }
+
+
+class TouristQueryResponse(BaseModel):
+    """Response model for tourist guide query endpoint"""
+    success: bool
+    response: str
+    cities_mentioned: list[str] = []
+    heritage_sites_mentioned: list[str] = []
+    sources_count: int = 0
+    error: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "response": "Rome, the Eternal City, is home to magnificent ancient heritage sites...",
+                "cities_mentioned": ["Rome, Italy"],
+                "heritage_sites_mentioned": ["Colosseum", "Roman Forum", "Pantheon"],
+                "sources_count": 4
+            }
+        }
+
+
+class CityInfo(BaseModel):
+    """Model for city information"""
+    city: str
+    country: str
+    heritage_sites_count: int

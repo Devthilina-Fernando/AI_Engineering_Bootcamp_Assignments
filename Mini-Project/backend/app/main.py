@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.weather import router as weather_router
 from app.routes.agent import router as agent_router
+from app.routes.tourist import router as tourist_router
 from app.scheduler import weather_scheduler
 
 # Configure logging
@@ -56,6 +57,7 @@ app.add_middleware(
 # Include routers
 app.include_router(weather_router)
 app.include_router(agent_router)
+app.include_router(tourist_router)
 
 
 @app.get("/", tags=["health"])
