@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  weather-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weather-pipeline
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./credentials:/app/credentials:ro
+      - ./.env:/app/.env:ro
+    env_file:
+      - .env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/adup-assignment-cc3101fc9d70.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
