@@ -23,7 +23,7 @@ class TouristGuideService:
         self.embeddings = OpenAIEmbeddings(openai_api_key=settings.OPENAI_API_KEY)
         self.llm = ChatOpenAI(
             model="gpt-4o-mini",
-            temperature=0.7,
+            temperature=0.3,  # Lower temperature for more factual, context-based responses
             openai_api_key=settings.OPENAI_API_KEY
         )
         self.vectorstore: Optional[FAISS] = None
@@ -110,21 +110,22 @@ City Overview: {city_data["description"]}
         """Create a prompt template for the tourist guide"""
         template = """You are an enthusiastic and knowledgeable tourist guide specializing in ancient heritage sites and historical destinations. Your goal is to inspire travelers and make them excited about visiting these incredible places.
 
-Use the following context about cities and heritage sites to answer the traveler's question:
+IMPORTANT: You can ONLY provide information about cities and heritage sites that are present in the context below. Do NOT make up information or provide details about places not mentioned in the context.
 
-Context:
+Context from Knowledge Base:
 {context}
 
 Question: {question}
 
 Instructions:
-1. Provide detailed, engaging information about the city or heritage sites mentioned
-2. Highlight the historical significance and unique features that make these places special
-3. Include practical travel tips like best times to visit, what to expect, and local recommendations
-4. Use vivid, descriptive language that helps the traveler imagine being there
-5. If mentioning multiple sites, organize your response clearly
-6. Encourage the traveler and express enthusiasm about these destinations
-7. If the question is not about tourist destinations or travel, politely redirect them to ask about cities and heritage sites
+1. ONLY answer based on the information provided in the context above
+2. If the context contains relevant information about the city or heritage sites mentioned in the question, provide detailed and engaging information
+3. If the context DOES NOT contain information about the requested city or place, you MUST respond with: "I apologize, but I don't have information about [city/place name] in my knowledge base. I can help you with information about cities like Rome, Athens, Cairo, Istanbul, Kyoto, Cusco (Machu Picchu), Jerusalem, Siem Reap (Angkor Wat), Petra, and Delhi."
+4. Highlight the historical significance and unique features using ONLY the information from the context
+5. Include practical travel tips ONLY from the context provided
+6. Use vivid, descriptive language based on the context to help the traveler imagine being there
+7. If mentioning multiple sites, organize your response clearly
+8. Never provide information not present in the context
 
 Your Response:"""
 
@@ -157,7 +158,10 @@ Your Response:"""
                 chain_type="stuff",
                 retriever=self.vectorstore.as_retriever(
                     search_type="similarity",
-                    search_kwargs={"k": 4}  # Retrieve top 4 most relevant chunks
+                    search_kwargs={
+                        "k": 4,  # Retrieve top 4 most relevant chunks
+                        "score_threshold": 0.5  # Only retrieve chunks with similarity > 0.5
+                    }
                 ),
                 return_source_documents=True,
                 chain_type_kwargs={"prompt": prompt_template}
@@ -169,8 +173,19 @@ Your Response:"""
             # Extract source information
             sources = []
             cities_mentioned = set()
+            source_documents = result.get("source_documents", [])
 
-            for doc in result.get("source_documents", []):
+            # Check if we have any relevant documents
+            if not source_documents:
+                return {
+                    "success": True,
+                    "response": "I apologize, but I don't have information about that location in my knowledge base. I can help you with information about cities like Rome, Athens, Cairo, Istanbul, Kyoto, Cusco (Machu Picchu), Jerusalem, Siem Reap (Angkor Wat), Petra, and Delhi. Please ask about any of these destinations!",
+                    "cities_mentioned": [],
+                    "heritage_sites_mentioned": [],
+                    "sources_count": 0
+                }
+
+            for doc in source_documents:
                 metadata = doc.metadata
                 if metadata.get("city"):
                     cities_mentioned.add(f"{metadata['city']}, {metadata['country']}")
@@ -182,7 +197,7 @@ Your Response:"""
                 "response": result["result"],
                 "cities_mentioned": list(cities_mentioned),
                 "heritage_sites_mentioned": list(set(sources)),
-                "sources_count": len(result.get("source_documents", []))
+                "sources_count": len(source_documents)
             }
 
         except Exception as e:
