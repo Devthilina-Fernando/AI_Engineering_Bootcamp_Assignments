@@ -1,27 +1,40 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { touristApi, CityInfo } from '@/services/api';
+import { touristApi, weatherApi, CityInfo, WeatherData } from '@/services/api';
 import ChatMessage, { Message } from '@/components/ChatMessage';
 import CitiesShowcase from '@/components/CitiesShowcase';
-import { Send, Sparkles, Globe, Loader2 } from 'lucide-react';
+import WeatherCard from '@/components/WeatherCard';
+import { Send, Globe, Loader2, Compass, CloudRain, Plane } from 'lucide-react';
+
+type AgentMode = 'tourist' | 'weather';
 
 export default function Home() {
+  const [agentMode, setAgentMode] = useState<AgentMode>('tourist');
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [cities, setCities] = useState<CityInfo[]>([]);
   const [showCities, setShowCities] = useState(true);
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadCities();
-    addWelcomeMessage();
+    addWelcomeMessage(agentMode);
   }, []);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    // Clear messages and add welcome message when switching agents
+    setMessages([]);
+    setShowCities(agentMode === 'tourist');
+    setWeatherData(null);
+    addWelcomeMessage(agentMode);
+  }, [agentMode]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,13 +49,10 @@ export default function Home() {
     }
   };
 
-  const addWelcomeMessage = () => {
-    const welcomeMessage: Message = {
-      id: Date.now().toString(),
-      type: 'bot',
-      content: `Welcome to the Heritage Tourist Guide! 🌍
+  const addWelcomeMessage = (mode: AgentMode) => {
+    const touristWelcome = `Welcome to the Heritage Tourist Guide! 🏛️
 
-I'm your personal guide to the world's most magnificent ancient heritage sites and historical destinations. I have detailed knowledge about incredible places like Rome, Athens, Cairo, Istanbul, Kyoto, and many more!
+I'm your personal AI guide to the world's most magnificent ancient heritage sites and historical destinations. I have detailed knowledge about incredible places like Rome, Athens, Cairo, Istanbul, Kyoto, and many more!
 
 Feel free to ask me about:
 • Ancient monuments and heritage sites
@@ -51,16 +61,58 @@ Feel free to ask me about:
 • Practical travel tips
 • Local recommendations
 
-Click on any city below or ask me anything about these amazing destinations!`,
+Click on any city below or ask me anything about these amazing destinations!`;
+
+    const weatherWelcome = `Welcome to the Weather Information Agent! ☁️
+
+I'm your AI weather assistant, here to help you plan your travels with accurate weather information. I can provide current weather conditions, historical data, and help you make informed decisions about when to visit your chosen destinations.
+
+Feel free to ask me about:
+• Current weather in any city
+• Weather history and averages
+• Temperature, humidity, and wind conditions
+• Weather-related travel planning
+
+Try asking: "What's the weather in London?" or "Show me weather history for Paris"`;
+
+    const welcomeMessage: Message = {
+      id: Date.now().toString(),
+      type: 'bot',
+      content: mode === 'tourist' ? touristWelcome : weatherWelcome,
       timestamp: new Date(),
     };
     setMessages([welcomeMessage]);
   };
 
-  const handleCityClick = (city: CityInfo) => {
-    const query = `Tell me about the ancient heritage sites in ${city.city}`;
-    setInputValue(query);
-    handleSendMessage(query);
+  const handleCityClick = async (city: CityInfo) => {
+    if (agentMode === 'tourist') {
+      const query = `Tell me about the ancient heritage sites in ${city.city}`;
+      setInputValue(query);
+      handleSendMessage(query);
+    } else {
+      // For weather mode, fetch weather data
+      try {
+        setIsLoading(true);
+        const weather = await weatherApi.getLatestWeather(city.city);
+        setWeatherData(weather);
+
+        const query = `What's the current weather in ${city.city}?`;
+        setInputValue(query);
+        handleSendMessage(query);
+      } catch (error) {
+        console.error('Failed to fetch weather:', error);
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'bot',
+          content: `I couldn't fetch the weather data for ${city.city}. Let me try using the weather agent instead.`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+        handleSendMessage(`What's the weather in ${city.city}?`);
+      } finally {
+        setIsLoading(false);
+      }
+    }
   };
 
   const handleSendMessage = async (messageText?: string) => {
@@ -81,18 +133,27 @@ Click on any city below or ask me anything about these amazing destinations!`,
     setIsLoading(true);
 
     try {
-      const response = await touristApi.askTouristGuide(textToSend);
-
-      // Add bot response
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'bot',
-        content: response.response,
-        cities_mentioned: response.cities_mentioned,
-        heritage_sites_mentioned: response.heritage_sites_mentioned,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMessage]);
+      if (agentMode === 'tourist') {
+        const response = await touristApi.askTouristGuide(textToSend);
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'bot',
+          content: response.response,
+          cities_mentioned: response.cities_mentioned,
+          heritage_sites_mentioned: response.heritage_sites_mentioned,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMessage]);
+      } else {
+        const response = await weatherApi.askWeatherAgent(textToSend);
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'bot',
+          content: response.response,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMessage]);
+      }
     } catch (error) {
       console.error('Failed to get response:', error);
       const errorMessage: Message = {
@@ -107,38 +168,72 @@ Click on any city below or ask me anything about these amazing destinations!`,
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
   };
 
-  const suggestedQuestions = [
+  const touristQuestions = [
     "What are the must-see sites in Rome?",
     "Best time to visit Machu Picchu?",
     "Tell me about the Pyramids of Giza",
     "Ancient temples in Kyoto"
   ];
 
+  const weatherQuestions = [
+    "What's the weather in London?",
+    "Show me weather in Cairo",
+    "Current temperature in Tokyo?",
+    "Weather conditions in Paris"
+  ];
+
+  const suggestedQuestions = agentMode === 'tourist' ? touristQuestions : weatherQuestions;
+
   return (
-    <div className="min-h-screen bg-heritage-pattern">
+    <div className="min-h-screen bg-mesh-gradient">
       {/* Header */}
-      <header className="bg-gradient-to-r from-primary-500 via-primary-600 to-orange-500 shadow-lg sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-primary-600 via-primary-500 to-secondary-500 shadow-xl sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="bg-white p-2 rounded-lg shadow-md">
+              <div className="bg-white p-2 rounded-lg shadow-lg">
                 <Globe className="text-primary-600" size={32} />
               </div>
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold text-white font-serif">
-                  Heritage Tourist Guide
+                  Travel AI Assistant
                 </h1>
-                <p className="text-primary-100 text-sm">Your gateway to ancient wonders</p>
+                <p className="text-primary-100 text-sm">Heritage Guide & Weather Info</p>
               </div>
             </div>
-            <Sparkles className="text-white animate-pulse-slow" size={28} />
+
+            {/* Agent Mode Toggle */}
+            <div className="flex bg-white/20 backdrop-blur-sm rounded-lg p-1 gap-1">
+              <button
+                onClick={() => setAgentMode('tourist')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md font-semibold transition-all ${
+                  agentMode === 'tourist'
+                    ? 'bg-white text-primary-700 shadow-lg'
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                <Compass size={20} />
+                <span className="hidden sm:inline">Tourist Guide</span>
+              </button>
+              <button
+                onClick={() => setAgentMode('weather')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md font-semibold transition-all ${
+                  agentMode === 'weather'
+                    ? 'bg-white text-primary-700 shadow-lg'
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                <CloudRain size={20} />
+                <span className="hidden sm:inline">Weather Agent</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -147,13 +242,35 @@ Click on any city below or ask me anything about these amazing destinations!`,
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Cities Showcase */}
         {showCities && cities.length > 0 && (
-          <div className="animate-slideUp">
+          <div className="animate-slideUp mb-8">
             <CitiesShowcase cities={cities} onCityClick={handleCityClick} />
+          </div>
+        )}
+
+        {/* Weather Card */}
+        {weatherData && agentMode === 'weather' && (
+          <div className="mb-8 animate-fadeIn">
+            <WeatherCard weather={weatherData} />
           </div>
         )}
 
         {/* Chat Container */}
         <div className="card p-6 max-w-5xl mx-auto">
+          {/* Agent Mode Indicator */}
+          <div className="mb-4 flex items-center gap-2 text-sm text-gray-600">
+            {agentMode === 'tourist' ? (
+              <>
+                <Plane size={16} className="text-primary-600" />
+                <span>Tourist Guide Mode - Ask about heritage sites and travel tips</span>
+              </>
+            ) : (
+              <>
+                <CloudRain size={16} className="text-primary-600" />
+                <span>Weather Agent Mode - Get weather information for any city</span>
+              </>
+            )}
+          </div>
+
           <div className="flex flex-col h-[600px]">
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto mb-4 pr-2">
@@ -207,8 +324,8 @@ Click on any city below or ask me anything about these amazing destinations!`,
                 type="text"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Ask me about ancient heritage sites..."
+                onKeyDown={handleKeyDown}
+                placeholder={agentMode === 'tourist' ? "Ask about heritage sites..." : "Ask about weather..."}
                 disabled={isLoading}
                 className="input-field flex-1"
               />
@@ -225,7 +342,7 @@ Click on any city below or ask me anything about these amazing destinations!`,
         </div>
 
         {/* Toggle Cities Button */}
-        {!showCities && (
+        {!showCities && agentMode === 'tourist' && (
           <div className="flex justify-center mt-6">
             <button
               onClick={() => setShowCities(true)}
@@ -238,11 +355,31 @@ Click on any city below or ask me anything about these amazing destinations!`,
       </main>
 
       {/* Footer */}
-      <footer className="bg-gray-800 text-white py-6 mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-sm">
-            Powered by AI • Explore the world's ancient heritage sites
-          </p>
+      <footer className="bg-gradient-to-r from-gray-800 to-gray-900 text-white py-8 mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div>
+              <h3 className="font-bold text-lg mb-2">Tourist Guide</h3>
+              <p className="text-sm text-gray-400">
+                Explore 10 major heritage destinations with 30+ ancient sites
+              </p>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg mb-2">Weather Agent</h3>
+              <p className="text-sm text-gray-400">
+                Get real-time weather data and historical information for trip planning
+              </p>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg mb-2">Powered by AI</h3>
+              <p className="text-sm text-gray-400">
+                Using OpenAI GPT, FAISS vectorstore, and LangChain RAG
+              </p>
+            </div>
+          </div>
+          <div className="text-center text-sm text-gray-500 border-t border-gray-700 pt-6">
+            Powered by AI • Explore heritage & plan with weather insights
+          </div>
         </div>
       </footer>
     </div>

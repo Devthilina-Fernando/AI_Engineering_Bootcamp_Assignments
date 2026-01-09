@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50;
+    @apply bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50;
   }
 }
 
@@ -72,12 +72,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #f5b73c;
+  background: #0ea5e9;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #f09f27;
+  background: #0284c7;
 }
 
 /* Animations */
